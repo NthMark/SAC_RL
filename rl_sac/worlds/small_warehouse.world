@@ -10,12 +10,12 @@
     </physics>
 
     
-        <model name="aws_robomaker_warehouse_RoofB_01_001">
+        <!-- <model name="aws_robomaker_warehouse_RoofB_01_001">
         <include>
             <uri>model://aws_robomaker_warehouse_RoofB_01</uri>
         </include>
         <pose frame="">0.0 0.0 0 0 0 0</pose>
-	</model>
+	</model> -->
 
         <model name="aws_robomaker_warehouse_ShelfF_01_001">
         <include>
@@ -93,7 +93,9 @@
         </include>
         <pose frame="">-0.061684 -6.6493 0 0 0 0</pose>
 	</model-->
-
+    <!-- <include>
+        <uri>model://ground_plane</uri>
+      </include> -->
         <model name="aws_robomaker_warehouse_GroundB_01_001">
         <include>
             <uri>model://aws_robomaker_warehouse_GroundB_01</uri>
@@ -101,12 +103,12 @@
         <pose frame="">0.0 0.0 -0.090092 0 0 0</pose>
 	</model>
        
-        <model name="aws_robomaker_warehouse_Lamp_01_005">
+        <!-- <model name="aws_robomaker_warehouse_Lamp_01_005">
         <include>
             <uri>model://aws_robomaker_warehouse_Lamp_01</uri>
         </include>
         <pose frame="">0 0 -4 0 0 0</pose>
-	</model>
+	</model> -->
        
 	
 
@@ -210,7 +212,7 @@
 	</model>
 
 
-      <model name='aws_robomaker_warehouse_PalletJackB_01_001'>
+    <model name='aws_robomaker_warehouse_PalletJackB_01_001'>
         <include>
             <uri>model://aws_robomaker_warehouse_PalletJackB_01</uri>
         </include>

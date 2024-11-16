@@ -58,7 +58,7 @@
       <geometry>
         <mesh filename="package://turtlebot3_gazebo/models/turtlebot3_common/meshes/burger_base.dae" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="light_black"/>
+      <material name="grey"/>
     </visual>
 
     <collision>
@@ -88,7 +88,7 @@
       <geometry>
         <mesh filename="package://turtlebot3_gazebo/models/turtlebot3_common/meshes/tire.dae" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="dark"/>
+      <material name="black"/>
     </visual>
 
     <collision>
@@ -118,7 +118,7 @@
       <geometry>
         <mesh filename="package://turtlebot3_gazebo/models/turtlebot3_common/meshes/tire.dae" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="dark"/>
+      <material name="black"/>
     </visual>
 
     <collision>

@@ -9,22 +9,18 @@ from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Pose
 from rclpy.parameter import Parameter
 from std_srvs.srv import Empty
+from launch.substitutions import Command
+import xacro
 class Respawn(Node):
     def __init__(self):
         super().__init__('respawn_node')
 
-        self.model_path = '/home/mark/limo_ws/src/rl_sac/models/goal_box.sdf'
-        with open(self.model_path, 'r') as f:
-            self.model = f.read()
-
-        self.stage = self.declare_parameter('stage_number', 1).value
+        # self.model_path = '/home/mark/limo_ws/src/rl_sac/models/goal_box.sdf'
+        # with open(self.model_path, 'r') as f:
+        #     self.model = f.read()
+        self.model_path = '/home/mark/limo_ws/src/rl_sac/urdf/goal_box.urdf.xacro'
+        self.model=xacro.process_file(self.model_path).toxml()
         self.goal_position = Pose()
-
-        # if self.stage == 1:
-        #     self.init_goal_x, self.init_goal_y = 0.975166, -0.790902
-        # elif self.stage == 2:
-        #     self.init_goal_x, self.init_goal_y = 2.25, -2.40
-        # else:
         self.init_goal_x, self.init_goal_y = -0.18133, 1.3284
         self.last_goal_x = self.init_goal_x
         self.last_goal_y = self.init_goal_y
@@ -87,19 +83,40 @@ class Respawn(Node):
     def get_position(self, delete=True):
         if delete:
             self.delete_model()
+        ###Level 1###
+        goal_x_list = [-0.18133,-1.6161,-1.9738]
+        goal_y_list = [1.3284,3.8146,6.7591]
+        ###Level 1###
 
-        goal_x_list = [5.1081,4.0456,2.7147,1.0915,0.37583,-0.18133,-0.14148,-1.4583,-3.6939,-2.8976,-1.5097,-0.73719,-0.35437,3.36,4.295,5.8217,6.5594,6.6926,2.7248]
-        goal_y_list = [-9.0511,-9.9685,-9.7536,-9.4915,-4.9754,1.3284,3.7654,3.7568,3.7427,6.2144,6.7212,6.9084,8.079,7.4159,7.4433,7.459,7.686,5.0049,4.9378]
+        ###Level 2###
+        # goal_x_list = [-0.18133,-1.6161,-1.9738,3.2031,3.3423,4.3,3.17]
+        # goal_y_list = [1.3284,3.8146,6.7591,10.032,7.3776,6.42,4.9]
+        ###Level 2###
+
+        ###Level 3###
+        # goal_x_list = [5.1081,4.0456,2.7147,1.0915,0.37583,-0.18133,-0.14148,-1.4583,-3.6939,-2.8976,-1.5097,-0.73719,-0.35437,3.36,4.295,5.8217,6.5594,6.6926,2.7248]
+        # goal_y_list = [-9.0511,-9.9685,-9.7536,-9.4915,-4.9754,1.3284,3.7654,3.7568,3.7427,6.2144,6.7212,6.9084,8.079,7.4159,7.4433,7.459,7.686,5.0049,4.9378]
+        ###Level 3###
+
+        ###Level 1###
         self.last_goal_x = self.goal_position.position.x
         self.last_goal_y = self.goal_position.position.y
-        index=random.randint(0,len(goal_x_list)-1)
-        self.goal_position.position.x = goal_x_list[index]
-        self.goal_position.position.y = goal_y_list[index]
-        while self.goal_position.position.x==self.last_goal_x and self.goal_position.position.y==self.last_goal_y and\
-        math.hypot(self.last_goal_x - self.goal_position.position.x, self.goal_position.position.y - self.last_goal_y) >2:
-            index=random.randint(0,len(goal_x_list)-1)
+        if (self.last_goal_x == goal_x_list[0] and self.last_goal_y==goal_y_list[0]) or (self.last_goal_x == goal_x_list[2] and self.last_goal_y==goal_y_list[2]) :
+            self.goal_position.position.x = goal_x_list[1]
+            self.goal_position.position.y = goal_y_list[1]
+        elif self.last_goal_x == goal_x_list[1] and self.last_goal_y==goal_y_list[1]:
+            index=random.choice([0, 2])
             self.goal_position.position.x = goal_x_list[index]
             self.goal_position.position.y = goal_y_list[index]
+        ###Level 1###
+
+        # index=random.randint(0,len(goal_x_list)-1)
+        # self.goal_position.position.x = goal_x_list[index]
+        # self.goal_position.position.y = goal_y_list[index]
+        # while self.goal_position.position.x==self.last_goal_x and self.goal_position.position.y==self.last_goal_y :
+        #     index=random.randint(0,len(goal_x_list)-1)
+        #     self.goal_position.position.x = goal_x_list[index]
+        #     self.goal_position.position.y = goal_y_list[index]
         time.sleep(0.5)
         self.respawn_model()
 
