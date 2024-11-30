@@ -18,6 +18,7 @@ class Respawn(Node):
         # self.model_path = '/home/mark/limo_ws/src/rl_sac/models/goal_box.sdf'
         # with open(self.model_path, 'r') as f:
         #     self.model = f.read()
+        self.get_logger().info('hello world')
         self.model_path = '/home/mark/limo_ws/src/rl_sac/urdf/goal_box.urdf.xacro'
         self.model=xacro.process_file(self.model_path).toxml()
         self.goal_position = Pose()
@@ -28,7 +29,7 @@ class Respawn(Node):
         self.goal_position.position.y = self.init_goal_y
         # self.goal_position.position.z = 1.0
         self.model_name = 'goal_box'
-
+        self.get_logger().info('hello world1')
         self.check_model = False
 
         self.subscription = self.create_subscription(

@@ -14,8 +14,24 @@ def generate_launch_description():
             os.path.join(myrobot_dir, 'launch', 'turtlebot3_world.launch.py')
         )
     )
-
-
+    grimap_rviz = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(myrobot_dir, 'launch', 'gridmap.launch.py')
+        ),
+        launch_arguments={'map':'src/rl_sac/map/stage_2.yaml'}.items()
+    )
+    gridmap_node=Node(
+        package='rl_sac',
+        executable='grid_map',
+        name='gridmap',
+        output='screen'
+    )
+    env_node=Node(
+        package='rl_sac',
+        executable='env',
+        name='environment',
+        output='screen'
+    )
     # Define the SAC agent node
     analysis_node=Node(
         package='rl_sac',
@@ -33,6 +49,9 @@ def generate_launch_description():
     # Assemble the launch description
     return LaunchDescription([
         turtlebot_simulation,
+        grimap_rviz,
+        gridmap_node,
+        env_node,
         analysis_node,
         sac_agent_node,
     ])

@@ -15,10 +15,11 @@ setup(
         (os.path.join('share',package_name,'param'), glob('param/*.yaml')),
         (os.path.join('share',package_name,'urdf'), glob('urdf/*.urdf')),
         (os.path.join('share',package_name,'worlds'), glob('worlds/*.world')),
+        (os.path.join('share',package_name,'map'), glob('map/*')),
         (os.path.join('share',package_name,'models','turtlebot3_burger'), glob('models/turtlebot3_burger/*')),
     ],
     package_data={
-        package_name: ['analysis/*.csv'],  # Add .csv files from analysis folder
+        package_name: ['analysis/*.csv','common/*']  
     },
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,10 +31,14 @@ setup(
     entry_points={
         'console_scripts': [
             'training=rl_sac.turtlebot_training:main',
-            # 'env=rl_sac.env_training:main',
+            'env=rl_sac.env_training:main',
             'analyze=rl_sac.analyze:main',
             'pub_test=rl_sac.testing.publisher:main',
             'sub_test=rl_sac.testing.subscriber:main',
+            'grid_map=rl_sac.grid_map:main',
+            'display_waypoint=rl_sac.display_waypoints:main',
+            'path_planning_train=rl_sac.path_planning_train:main',
+            'map_data_len=rl_sac.map_data:main'
             # 'bridge=rl_sac.testing.bridge_pub_sub:main'
         ],
     },

@@ -1,38 +1,25 @@
-#!/usr/bin/env python3
-
-###ROS library
-import copy
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException
-###ROS library
+from geometry_msgs.msg import Twist,Point
+from nav_msgs.msg import OccupancyGrid
 import numpy as np
-import matplotlib.pyplot as plt
-import random
-import time
-import sys
-import os
-import shutil
-from collections import deque, namedtuple
-from std_msgs.msg import Float32MultiArray
+from .display_waypoints import WaypointPublisher
+from .grid_map import GridMap
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal
-import GPUtil
-import psutil
-from threading import Thread
-from csv import writer
-from tensorboardX import SummaryWriter
-# from std_srvs.srv import Empty
-from .env_training import Env
-from .common.config import *
-from .graph import Graph
-if ENABLE_VISUAL:
-    from .common.visual import DrlVisual
-from PyQt5 import QtWidgets
-import threading
+from torch.distributions import Categorical
+import os
+import time
+from collections import deque
+import random
+SAMPLE_THRESHOLD = 500
+ACTION_DIMENSION = 4 
+STATE_DIMENSION  = 3 # current_position->2, distance->1, 5x5 neighbors_status->25, 
+EPISODE=5000
+MAX_STEP_SIZE=2000
+HIDDEN_SIZE =256
 class ReplayBuffer:
     def __init__(self, buffer_limit, device):
         self.buffer = deque(maxlen=buffer_limit)
@@ -94,6 +81,7 @@ class ValueNetwork(nn.Module):
 class PolicyNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_size,actor_lr,DEVICE,init_w=3e-3, log_std_min=-10, log_std_max=2):
         super(PolicyNetwork, self).__init__()
+
         self.fc_1 = nn.Linear(state_dim, hidden_size)
         self.fc_1.weight.data.uniform_(-init_w, init_w)
         self.fc_1.bias.data.uniform_(-init_w, init_w)
@@ -106,23 +94,12 @@ class PolicyNetwork(nn.Module):
         self.fc_3.weight.data.uniform_(-init_w, init_w)
         self.fc_3.bias.data.uniform_(-init_w, init_w)
 
-        self.fc_mu = nn.Linear(hidden_size//2, action_dim)
-        self.fc_mu.weight.data.uniform_(-init_w, init_w)
-        self.fc_mu.bias.data.uniform_(-init_w, init_w)
-
-        self.fc_log_std = nn.Linear(hidden_size//2, action_dim)
-        self.fc_log_std.weight.data.uniform_(-init_w, init_w)
-        self.fc_log_std.bias.data.uniform_(-init_w, init_w)
+        self.fc_out = nn.Linear(hidden_size//2, action_dim)
+        self.fc_out.weight.data.uniform_(-init_w, init_w)
+        self.fc_out.bias.data.uniform_(-init_w, init_w)
 
         self.lr = actor_lr
         self.dev = DEVICE
-
-        self.LOG_STD_MIN = log_std_min
-        self.LOG_STD_MAX = log_std_max
-        self.max_action = torch.FloatTensor([ACTION_W_MAX, ACTION_V_MAX]).to(self.dev)
-        self.min_action = torch.FloatTensor([ACTION_W_MIN, ACTION_V_MIN]).to(self.dev)
-        self.action_scale = (self.max_action - self.min_action) / 2.0
-        self.action_bias = (self.max_action + self.min_action) / 2.0
         
         self.to(self.dev)
 
@@ -132,25 +109,14 @@ class PolicyNetwork(nn.Module):
         x = F.leaky_relu(self.fc_1(x))
         x = F.leaky_relu(self.fc_2(x))
         x = F.leaky_relu(self.fc_3(x))
-        mu = self.fc_mu(x)
-        log_std = self.fc_log_std(x)
-        log_std = torch.clamp(log_std, self.LOG_STD_MIN, self.LOG_STD_MAX)
-        return mu, log_std
+        logits = self.fc_out(x)
+        return F.softmax(logits, dim=-1) 
 
-    def sample(self, state,epsilon=1e-6):
-        mean, log_std = self.forward(state)
-        std = torch.exp(log_std)
-        reparameter = Normal(mean, std)
-        z = reparameter.rsample()
-        y_t = torch.tanh(z)
-        action = self.action_scale * y_t + self.action_bias
-
-        # # # Enforcing Action Bound
-        log_prob = reparameter.log_prob(z)
-        log_prob = log_prob - torch.sum(torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon), dim=-1, keepdim=True)
-        # action = torch.tanh(z)
-        # log_prob = reparameter.log_prob(z) - torch.log(1 - action.pow(2) + epsilon)
-        # log_prob = log_prob.sum(-1, keepdim=True)
+    def sample(self, state):
+        action_probs = self.forward(state)
+        distribution = Categorical(action_probs)
+        action = distribution.sample()
+        log_prob = distribution.log_prob(action)
         return action, log_prob
 
 class SoftQNetwork(nn.Module):
@@ -173,7 +139,12 @@ class SoftQNetwork(nn.Module):
         self.device = device
         self.to(self.device)
     def forward(self, state, action):
-        x = torch.cat([state, action], 1)
+        if action.dim() == 1:
+            action = action.unsqueeze(1)  # Ensure action has the same number of dimensions as state
+        action = action.to(torch.long)
+        action_one_hot = F.one_hot(action, num_classes=ACTION_DIMENSION).float()  
+        action_one_hot = action_one_hot.squeeze(1) 
+        x = torch.cat([state, action_one_hot], 1)
         x = mish(self.linear1(x))
         x = mish(self.linear2(x))
         x = mish(self.linear2_3(x))
@@ -188,18 +159,20 @@ class SACAgent:
         self.lr_q           = 0.0005
         self.lr_v           = 0.0005
         self.gamma          = 0.98
-        self.batch_size     = BATCH_SIZE
-        self.buffer_limit   = 500000
+        self.batch_size     = 200
+        self.buffer_limit   = 100000
         self.tau            = 0.0007   # for soft-update of Q using Q-target
         self.init_alpha     = 8
         self.target_entropy = -2 #-self.action_dim  # == -2
         self.lr_alpha       = 0.001
+        self.loss           = [[0.,0.,0.,0.,0.]]
         self.DEVICE         = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.memory         = ReplayBuffer(self.buffer_limit, self.DEVICE)
         print("Device chosen : ", self.DEVICE)      
-        # self.log_alpha = torch.tensor(np.log(self.init_alpha)).to(self.DEVICE)
-        # self.log_alpha.requires_grad = True
-        # self.log_alpha_optimizer = optim.Adam([self.log_alpha], lr=self.lr_alpha)
+        self.log_alpha = torch.tensor(np.log(self.init_alpha)).to(self.DEVICE)
+        self.log_alpha.requires_grad = True
+        self.log_alpha_optimizer = optim.Adam([self.log_alpha], lr=self.lr_alpha)
+
         self.PI  = PolicyNetwork(self.state_dim, self.action_dim, self.hidden_dim,self.lr_pi, self.DEVICE)
         self.Q1        = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
         # self.Q1_target = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
@@ -216,16 +189,6 @@ class SACAgent:
         with torch.no_grad():
             action, log_prob = self.PI.sample(s.to(self.DEVICE))
         return action, log_prob
-
-    # def calc_target(self, mini_batch):
-    #     s, a, r, s_prime, done = mini_batch
-    #     with torch.no_grad():
-    #         a_prime, log_prob_prime = self.PI.sample(s_prime)
-    #         entropy = - self.log_alpha.exp() * log_prob_prime
-    #         q1_target, q2_target = self.Q1_target(s_prime, a_prime), self.Q2_target(s_prime, a_prime)
-    #         q_target = torch.min(q1_target, q2_target)
-    #         target = r + self.gamma * (1 - done) * (q_target + entropy)
-    #     return target
 
     def train_agent(self):
         mini_batch = self.memory.sample(self.batch_size)
@@ -257,7 +220,7 @@ class SACAgent:
         # q = torch.min(q1, q2).detach()  
         q = torch.min(q1, q2)
         # pi_loss = -(q + entropy)  # for gradient ascent
-        pi_loss = (log_prob-q)
+        pi_loss = (log_prob-q).detach()
         self.PI.optimizer.zero_grad()
         pi_loss.mean().backward()
         nn.utils.clip_grad_norm_(self.PI.parameters(), 1.0)
@@ -278,165 +241,99 @@ class SACAgent:
         # alpha_loss.backward()
         # self.log_alpha_optimizer.step()
         #### alpha train ####
-        critic_loss=q1_loss.mean().detach().float().item()+q2_loss.mean().detach().float().item()
-        actor_loss =pi_loss.mean().detach().float().item()
+        self.loss=[q1_loss.mean().detach().float().item(),q2_loss.mean().detach().float().item(),pi_loss.mean().detach().float().item(),\
+                   v_loss.mean().detach().float().item()]
         #### V soft-update ####
         for param_target, param in zip(self.V_target.parameters(), self.V.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - self.tau) + param.data * self.tau)
-        return actor_loss,critic_loss
-        #### Q1, Q2 soft-update ####
-        # #### Q1, Q2 soft-update ####
-        # for param_target, param in zip(self.V_target.parameters(), self.V.parameters()):
-        #     param_target.data.copy_(param_target.data * (1.0 - self.tau) + param.data * self.tau)
-        # for param_target, param in zip(self.Q2_target.parameters(), self.Q2.parameters()):
-        #     param_target.data.copy_(param_target.data * (1.0 - self.tau) + param.data * self.tau)
-        # #### Q1, Q2 soft-update ####
 
-class Monitor(Thread):
-    def __init__(self, delay):
-        super(Monitor, self).__init__()
-        self.stopped = False
-        self.delay = delay
-        self.start()
-
-    def run(self):
-        while not self.stopped:
-            GPUtil.showUtilization()
-            print("CPU percentage:", psutil.cpu_percent())
-            print('CPU virtual_memory used:', psutil.virtual_memory()[2], "\n")
-            time.sleep(self.delay)
-
-    def stop(self):
-        self.stopped = True
-class Training(Node):
+class PathPlanningNode(Node):
     def __init__(self):
-        super().__init__('mobile_robot_sac')
-        timer_period=0.5 
+        super().__init__('path_planning_node')
+        timer_period=0.5
         self.timer=self.create_timer(timer_period,self.training)
-        self.velocity_publisher=self.create_publisher(Float32MultiArray,'vel_output',10)#[linear_vel,angular_vel]
-        self.loss_publisher=self.create_publisher(Float32MultiArray,'loss',10)#[q1_loss,q2_loss,pi_loss,v_loss,alpha_loss]
-        self.entropy_publisher=self.create_publisher(Float32MultiArray,'entropy',10)#[entropy_term]
-        self.goal_distance_and_heading_publisher=self.create_publisher(Float32MultiArray,'goal_distance_and_heading',10)#[goal distance, heading]
-        self.minimum_distance_from_obstacles=self.create_publisher(Float32MultiArray,'minimum_distance_obstacle',10)# pos
-        self.success_rate=self.create_publisher(Float32MultiArray,'success_rate',10) # [no_collision, no_reach_goal]success rate of reaching the goal without collisions
-        self.reward_publisher=self.create_publisher(Float32MultiArray,'reward',10) #reward
-        self.vel_distribution_pub=self.create_publisher(Float32MultiArray,'vel_distribute',10)
-        self.graph=Graph()
-        self.visual = None
-        if ENABLE_VISUAL:
-            self.start_visual_thread()
+        # Publisher to control the robot
+        
+        self.current_position = [0, 0]
 
-    def start_visual_thread(self):
-        # Start the PyQt application in a separate thread
-        def run_visual():
-            app = QtWidgets.QApplication(sys.argv)
-            self.visual = DrlVisual()
-            sys.exit(app.exec_())
-
-        visual_thread = threading.Thread(target=run_visual)
-        visual_thread.daemon = True  # Allow the program to exit even if the thread is running
-        visual_thread.start()
-
+    def her_replay(self,env, episode_transitions, final_state):
+        for transition in episode_transitions:
+            s, a, r, s_prime, done = transition
+            # Use final_state as a hindsight goal
+            new_goal = final_state
+            new_reward = env.get_reward(done, env.is_reach_goal(s_prime.position, self.neighbor_size))
+            her_transition = (s, a, new_reward, s_prime, done)
+            self.agent.memory.put(her_transition)
     def training(self):
-        date = '10_11'
+        date = '27_11'
         # time.sleep(10)
-        save_dir = "/home/mark/limo_ws/src/rl_sac/rl_sac/saved_model/" + date 
+        save_dir = "/home/mark/limo_ws/src/rl_sac/rl_sac/saved_model/path_planning" + date 
         if not os.path.isdir(save_dir):
             os.mkdir(save_dir)
         save_dir += "/"
-        env = Env()
-        agent = SACAgent(state_dim,action_dim,hidden_dim)
+        env=GridMap(debug=True)
+        agent = SACAgent(STATE_DIMENSION,ACTION_DIMENSION,HIDDEN_SIZE) 
+        self.get_logger().info(f'Device chosen: {agent.DEVICE}')
+        # writer = SummaryWriter('SAC_log/'+date)
         score = 0.0
         print_once = True
-        past_action = [0.,0.]
-        with open('/home/mark/limo_ws/src/rl_sac/rl_sac/analysis/reward.csv', 'w', newline='') as csvfile:
-            pass
-        with open('/home/mark/limo_ws/src/rl_sac/rl_sac/analysis/success_rate.csv', 'w', newline='') as csvfile:
-            pass
+        state_prime=None
         for EP in range(EPISODE):
             self.get_logger().info(f'EPISODE : {EP}')
             self.no_collision=0.
             self.no_reach_goal=0.
-            state,pos,reach_goal = env.reset()
-            total_step,score, done,actor_loss_ep,critic_loss_ep = 0.,0. , False,0.,0.     
-            timeout=False
+            env.generate_start_goal()
+            state = env.reset()
+            score, done = 0.0 , False        
             self.get_logger().info(f'Beginning : {EP}')
+            episode_transitions = []
+
             for step in range(MAX_STEP_SIZE): #while not done:
                 self.get_logger().info(f'STEP : {step}')
 
-                ###Publish###
-                msg=Float32MultiArray()
-                msg.data=[float(EP),float(step),float(state[-1]),float(state[-2])]
-                self.goal_distance_and_heading_publisher.publish(msg)
-                msg.data=[float(EP),float(step),pos.x,pos.y]
-                self.minimum_distance_from_obstacles.publish(msg)
-                ###Publish###
-
                 action, _ = agent.choose_action(torch.FloatTensor(state))
                 action = action.detach().cpu().numpy()
-                
-                state_prime, reward, done,pos,reach_goal = env.step(action, past_action,\
-                                                     ACTION_V_MAX,ACTION_W_MAX)
-                msg.data=[float(action[1]),float(action[0]),pos.x,pos.y]
-                past_action = copy.deepcopy(action)
-                agent.memory.put((state, action, reward, state_prime, done))
+                state_prime, reward, done = env.step(action)
+                transition = (state, action, reward, state_prime, done)
+                episode_transitions.append(transition)
+
+                agent.memory.put(transition)
                 
                 score += reward
-                if ENABLE_VISUAL:
-                    self.visual.update_action(action)
-                    self.visual.update_reward(score)
+                
                 state = state_prime
-                ###Publish###
-                msg.data=[float(EP),float(step),float(action[1]),float(action[0])]
-                self.velocity_publisher.publish(msg)
-                ###Publish###
-                if agent.memory.size()>THRESHOLD_TRAINING:
+                if done:
+                    episode_transitions = []
+                    self.get_logger().warn(f'COLLISION -> RESET')
+                    state = env.reset()
+                    self.no_collision+=1
+
+                if agent.memory.size()>SAMPLE_THRESHOLD:
                     if print_once: 
                         self.get_logger().info('Start learning!.............................')
                         print_once = False
-                    actor_loss,critic_loss=agent.train_agent()
-                    actor_loss_ep +=actor_loss
-                    critic_loss_ep+=critic_loss
-                    ###Publish###
-                    msg.data=[float(EP),float(step)]+[agent.actor_loss,agent.critic_loss]
-                    self.loss_publisher.publish(msg)
-                    msg.data=[float(EP),float(step),agent.log_alpha.detach().item()]
-                    self.entropy_publisher.publish(msg)
-                    ###Publish###
-                if agent.memory.size()<=THRESHOLD_TRAINING:
+                    agent.train_agent()
+                if agent.memory.size()<=SAMPLE_THRESHOLD:
                     # sim_rate.sleep()   
-                    time.sleep(0.002) 
-                ###Publish###
-                total_step=step
+                    time.sleep(0.002)  
+            final_state = state_prime
+            goal=Point()
+            goal.x=final_state[0]
+            goal.y=final_state[1]
+            for transition in episode_transitions:
+                s, a, r, s_prime, done = transition
+                done=False
+                # Treat final state as the goal to create a new goal-based reward
+                current_point=Point()
+                current_point.x=s_prime[0]
+                current_point.y=s_prime[1]
+                new_reward = env.calculate_reward(current_point,goal)
+                # Add HER transition
+                agent.memory.put((s, a, new_reward, s_prime, done))
 
-                if reach_goal:
-                    self.no_reach_goal+=1
-                    break
-                if done:
-                    self.get_logger().warn(f'COLLISION -> RESET')
-                    self.no_collision+=1
-                    break
-                if step==MAX_STEP_SIZE-1:
-                    timeout=True
-            outcome=[reach_goal,done,timeout]
-            self.graph.update_data(total_step,outcome,score,critic_loss_ep,actor_loss_ep)        
-
-            with open('/home/mark/limo_ws/src/rl_sac/rl_sac/analysis/reward.csv', 'a', newline='') as csvfile:
-                csvwriter = writer(csvfile, delimiter='|')
-                csvwriter.writerow([float(EP),score])
-                csvfile.close()
-            with open('/home/mark/limo_ws/src/rl_sac/rl_sac/analysis/success_rate.csv', 'a', newline='') as csvfile:
-                csvwriter = writer(csvfile, delimiter='|')
-                csvwriter.writerow([float(EP),self.no_collision,self.no_reach_goal])
-                csvfile.close()
-            # writer.add_scalar("Score", score, EP)    
             print("EP:{}, Avg_Score:{:.1f}".format(EP, score), "\n")  
-                
             if EP % 10 == 0: 
                 torch.save(agent.PI.state_dict(), save_dir + "sac_actor_"+date+"_EP"+str(EP)+".pt")
-            if (EP % GRAPH_DRAW_INTERVAL == 0) or (EP == 1):
-                self.graph.draw_plots(EP)
-    
 def mish(x):
     '''
         Mish: A Self Regularized Non-Monotonic Neural Activation Function
@@ -449,15 +346,16 @@ def mish(x):
     '''
     return torch.clamp(x*(torch.tanh(F.softplus(x))),max=6)
 def main(args=None):
+    rclpy.init(args=args)
+    node = PathPlanningNode()
+
     try:
-        rclpy.init(args=args)
-        training = Training()
-        rclpy.spin(training)
-        training.destroy_node()
-        rclpy.shutdown()
-    except (KeyboardInterrupt, ExternalShutdownException):
+        rclpy.spin(node)
+    except KeyboardInterrupt:
         pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
