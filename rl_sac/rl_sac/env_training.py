@@ -5,19 +5,16 @@ import numpy as np
 import math
 import time
 import rclpy.wait_for_message
-import tf2_ros
-from math import pi, sqrt, pow
-from gazebo_msgs.srv import SpawnEntity, DeleteEntity
-from gazebo_msgs.msg import ModelStates
-from geometry_msgs.msg import Twist, Point, Pose
+from math import pi
+from geometry_msgs.msg import Twist,Point
 from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry,OccupancyGrid
+from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
 from .respawn_goal import Respawn
 from .common import utils
 from .grid_map import GridMap
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
-from .common.config import data_map_length
+from .common.config import data_map_length,ACTION_V_MAX
 class Env(Node):
     def __init__(self,action_dim=2):
         super().__init__('env')
@@ -25,7 +22,7 @@ class Env(Node):
         self.goal_x, self.goal_y = self.respawn_goal.get_start_pose()
         self.heading = 0
         self.get_goalbox = False
-        # self.position = Point()
+        self.position = Point()
         self.line_error = 0
         self.current_obstacle_angle = 0
         self.old_obstacle_angle = 0
@@ -38,19 +35,19 @@ class Env(Node):
         self.stopped = 0
         self.action_dim = action_dim
         qos = QoSProfile(depth=10)
-        self.reset_proxy = self.create_client(Empty, 'reset_simulation')
+        self.reset_proxy = self.create_client(Empty, 'reset_world')
         self.unpause_proxy = self.create_client(Empty, 'unpause_physics')
         self.pause_proxy = self.create_client(Empty, 'pause_physics')
         self.past_distance = 0.
         self.pub_cmd_vel = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.sub_odom = self.create_subscription(Odometry, 'odom', self.get_odometry, 10) 
-        self.sub_scan = self.create_subscription(LaserScan, 'scan', self.get_scan_data, qos_profile=qos_profile_sensor_data)
+        # self.sub_odom = self.create_subscription(Odometry, 'odom', self.get_odometry, 10) 
+        # self.sub_scan = self.create_subscription(LaserScan, 'scan', self.get_scan_data, qos_profile=qos_profile_sensor_data)
         self.scan = LaserScan()
         self.gridmap=GridMap(debug=True,is_publish=False)
         #### TEST
-        self.position=None
-        while rclpy.ok() and self.position is None:
-            rclpy.spin_once(self)
+        # self.position=None
+        # while rclpy.ok() and self.position is None:
+        #     rclpy.spin_once(self)
         ####
         self.get_logger().info(f"Environment : {len(self.gridmap.occ_map_data.data)}")
     def get_goal_distance(self,position):
@@ -58,21 +55,21 @@ class Env(Node):
         self.past_distance = goal_distance
 
         return goal_distance
-    def get_odometry(self,msg):
-        # self.get_logger().info(f"Position: {msg.pose.pose.position}")
-        self.past_position = copy.deepcopy(self.position)
-        self.position = msg.pose.pose.position
-        orientation = msg.pose.pose.orientation
-        _, _, yaw = utils.euler_from_quaternion(orientation)
+    # def get_odometry(self,msg):
+    #     # self.get_logger().info(f"Position: {msg.pose.pose.position}")
+    #     self.past_position = copy.deepcopy(self.position)
+    #     self.position = msg.pose.pose.position
+    #     orientation = msg.pose.pose.orientation
+    #     _, _, yaw = utils.euler_from_quaternion(orientation)
 
-        goal_angle = math.atan2(self.goal_y - self.position.y, self.goal_x - self.position.x)
-        self.heading = goal_angle - yaw
-        if self.heading > pi:
-            self.heading -= 2 * pi
-        elif self.heading < -pi:
-            self.heading += 2 * pi
-        # self.position="hello world"
-        self.get_logger().info(f"Position: {self.position}")
+    #     goal_angle = math.atan2(self.goal_y - self.position.y, self.goal_x - self.position.x)
+    #     self.heading = goal_angle - yaw
+    #     if self.heading > pi:
+    #         self.heading -= 2 * pi
+    #     elif self.heading < -pi:
+    #         self.heading += 2 * pi
+    #     # self.position="hello world"
+    #     self.get_logger().info(f"Position: {self.position}")
     def get_scan_data(self,msg):
         self.scan=msg
     def step(self, action, past_action,v_max,w_max):
@@ -122,7 +119,7 @@ class Env(Node):
         done =  0<min(scan.ranges) < 0.15 #Collision
 
         current_distance = self.get_goal_distance(self.position)
-        self.get_goalbox=current_distance < 0.15
+        self.get_goalbox=current_distance < 0.3
         return list(self.gridmap.occ_map_data.data)[:data_map_length]+scan_range + list(past_action)+[self.heading, current_distance], done,self.position,self.get_goalbox
     def setReward(self, state, done, action,v_max,w_max):
     
@@ -159,6 +156,25 @@ class Env(Node):
         angle_rate = 2*abs(heading)/pi
         angle_reward = -3*angle_rate+3 if angle_rate<=1 else -1*angle_rate+1
         ########Case 2###########
+
+        ########Case 3###########
+        r_yaw=-1*abs(heading)
+        r_vangular=-1*(action[0]**2)
+        r_vlinear=-1*(((ACTION_V_MAX-action[1])*10)**2)
+        r_distance=(2*self.goal_distance)/(current_distance+self.goal_distance)-1
+        action_reward=r_vangular+r_vlinear
+        # lin_vel_rate = action[1]/v_max
+        # ang_vel_rate = abs(action[0])/w_max
+        # lin_vel_reward = 3*lin_vel_rate
+        # ang_vel_reward = -2*ang_vel_rate+2
+        # action_reward = ang_vel_reward + lin_vel_reward
+        
+        # distance_rate = (current_distance / (self.goal_distance+0.0000001))
+        # distance_reward = -2*distance_rate+2 if distance_rate<=1 else 1
+        
+        # angle_rate = 2*abs(heading)/pi
+        # angle_reward = -3*angle_rate+3 if angle_rate<=1 else -1*angle_rate+1
+        ########Case 2###########
         a, b, c, d = float('{0:.3f}'.format(self.position.x)), float('{0:.3f}'.format(self.past_position.x)), float('{0:.3f}'.format(self.position.y)), float('{0:.3f}'.format(self.past_position.y))
         if a == b and c == d:
             self.stopped += 1
@@ -172,19 +188,20 @@ class Env(Node):
         goal_reward=0.
         if done:
             self.get_logger().warn('Collision!!!!')
-            obstacle_reward -=100
+            obstacle_reward -=500
             self.time_step = 0
             self.pub_cmd_vel.publish(Twist())
 
         if self.get_goalbox:
             self.get_logger().info('Goal!!')
-            goal_reward += 500
+            goal_reward += 1000
             self.pub_cmd_vel.publish(Twist())
             self.goal_x, self.goal_y = self.respawn_goal.get_position() #4.5, 4.5 # goal_def()
             print("NEXT GOAL : ", self.goal_x, self.goal_y )
             self.get_goalbox = False
             self.time_step = 0
-        reward=distance_reward + angle_reward +action_reward+obstacle_reward+goal_reward
+        reward=r_yaw+r_distance+action_reward+obstacle_reward+goal_reward
+        # reward=distance_reward + angle_reward +action_reward+obstacle_reward+goal_reward
         return reward,done
     def reset(self):
         self.get_logger().info(f'RESETTTTTT..................')
@@ -204,7 +221,7 @@ class Env(Node):
             except Exception as e:
                 self.get_logger().warn(f"Failed to receive LaserScan message: {e}")
         self.position = odom[1].pose.pose.position
-        self.get_logger().info(f"Pose position{self.position}")
+        # self.get_logger().info(f"Pose position{self.position}")
         self.goal_distance = self.get_goal_distance(self.position)
         state, _ ,pos,reach_goal= self.get_state(data[1], [0]*self.action_dim)
         return np.asarray(state),pos,reach_goal

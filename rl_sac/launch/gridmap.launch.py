@@ -90,7 +90,7 @@ def generate_launch_description():
 
     declare_map_yaml_cmd = DeclareLaunchArgument(
         'map',
-        default_value='src/rl_sac/map/stage_2.yaml',
+        default_value='/home/mark/limo_ws/src/rl_sac/map/stage_2.yaml',
         description='Full path to map yaml file to load')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
@@ -118,10 +118,14 @@ def generate_launch_description():
     declare_log_level_cmd = DeclareLaunchArgument(
         'log_level', default_value='info',
         description='log level')
+    # rviz_config_dir = os.path.join(
+    #     get_package_share_directory('nav2_bringup'),
+    #     'rviz',
+    #     'nav2_default_view.rviz')
     rviz_config_dir = os.path.join(
-        get_package_share_directory('nav2_bringup'),
-        'rviz',
-        'nav2_default_view.rviz')
+        get_package_share_directory('rl_sac'),
+        'config',
+        'rl_sac_stage_1.rviz')
     rviz_node=Node(
             package='rviz2',
             executable='rviz2',

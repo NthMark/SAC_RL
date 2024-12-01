@@ -54,16 +54,16 @@
     <link name="goal">
         <visual>
             <geometry>
-                <cylinder radius="0.1" length="0.1"/>
+                <cylinder radius="0.05" length="0.05"/>
             </geometry>
             <material name="red"/>
         </visual>
         <collision>
             <geometry>
-                <cylinder radius="0.1" length="0.1"/>
+                <cylinder radius="0.05" length="0.05"/>
             </geometry>
         </collision>
-        <xacro:inertial_cylinder mass="1" length="0.1" radius="0.1">
+        <xacro:inertial_cylinder mass="1" length="0.05" radius="0.05">
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </xacro:inertial_cylinder>
     </link>

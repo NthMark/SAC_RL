@@ -24,15 +24,14 @@ import GPUtil
 import psutil
 from threading import Thread
 from csv import writer
-from tensorboardX import SummaryWriter
 # from std_srvs.srv import Empty
 from .env_training import Env
 from .common.config import *
 from .graph import Graph
 if ENABLE_VISUAL:
     from .common.visual import DrlVisual
-from PyQt5 import QtWidgets
-import threading
+    from PyQt5 import QtWidgets
+    import threading
 class ReplayBuffer:
     def __init__(self, buffer_limit, device):
         self.buffer = deque(maxlen=buffer_limit)
@@ -201,11 +200,13 @@ class SACAgent:
         # self.log_alpha.requires_grad = True
         # self.log_alpha_optimizer = optim.Adam([self.log_alpha], lr=self.lr_alpha)
         self.PI  = PolicyNetwork(self.state_dim, self.action_dim, self.hidden_dim,self.lr_pi, self.DEVICE)
+        print("Pass3............")
         self.Q1        = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
         # self.Q1_target = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
+        print("Pass2............")
         self.Q2        = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
         # self.Q2_target = SoftQNetwork(self.state_dim, self.action_dim, self.hidden_dim, self.lr_q, self.DEVICE)
-
+        print("Pass1............")
         self.V         = ValueNetwork(self.state_dim,self.hidden_dim,self.lr_v,self.DEVICE)
         self.V_target  = ValueNetwork(self.state_dim,self.hidden_dim,self.lr_v,self.DEVICE) 
         self.V_target.load_state_dict(self.V.state_dict())
@@ -322,9 +323,9 @@ class Training(Node):
         self.reward_publisher=self.create_publisher(Float32MultiArray,'reward',10) #reward
         self.vel_distribution_pub=self.create_publisher(Float32MultiArray,'vel_distribute',10)
         self.graph=Graph()
-        self.visual = None
         if ENABLE_VISUAL:
-            self.start_visual_thread()
+            self.visual_pub=self.create_publisher(Float32MultiArray,'visual_rviz',10)
+            # self.start_visual_thread()
 
     def start_visual_thread(self):
         # Start the PyQt application in a separate thread
@@ -338,6 +339,7 @@ class Training(Node):
         visual_thread.start()
 
     def training(self):
+        self.get_logger().info(f'State dimension :{state_dim}')
         date = '10_11'
         # time.sleep(10)
         save_dir = "/home/mark/limo_ws/src/rl_sac/rl_sac/saved_model/" + date 
@@ -377,16 +379,19 @@ class Training(Node):
                 
                 state_prime, reward, done,pos,reach_goal = env.step(action, past_action,\
                                                      ACTION_V_MAX,ACTION_W_MAX)
-                msg.data=[float(action[1]),float(action[0]),pos.x,pos.y]
                 past_action = copy.deepcopy(action)
                 agent.memory.put((state, action, reward, state_prime, done))
                 
                 score += reward
                 if ENABLE_VISUAL:
-                    self.visual.update_action(action)
-                    self.visual.update_reward(score)
+                    msg.data=[float(action[1]),float(action[0]),float(score)]
+                    self.visual_pub.publish(msg)
+                    # self.visual.update_action(action)
+                    # self.visual.update_reward(score)
                 state = state_prime
                 ###Publish###
+                msg.data=[float(action[1]),float(action[0]),pos.x,pos.y]
+                self.vel_distribution_pub.publish(msg)
                 msg.data=[float(EP),float(step),float(action[1]),float(action[0])]
                 self.velocity_publisher.publish(msg)
                 ###Publish###
@@ -398,10 +403,10 @@ class Training(Node):
                     actor_loss_ep +=actor_loss
                     critic_loss_ep+=critic_loss
                     ###Publish###
-                    msg.data=[float(EP),float(step)]+[agent.actor_loss,agent.critic_loss]
+                    msg.data=[float(EP),float(step)]+[actor_loss,critic_loss]
                     self.loss_publisher.publish(msg)
-                    msg.data=[float(EP),float(step),agent.log_alpha.detach().item()]
-                    self.entropy_publisher.publish(msg)
+                    # msg.data=[float(EP),float(step),agent.log_alpha.detach().item()]
+                    # self.entropy_publisher.publish(msg)
                     ###Publish###
                 if agent.memory.size()<=THRESHOLD_TRAINING:
                     # sim_rate.sleep()   
@@ -410,6 +415,7 @@ class Training(Node):
                 total_step=step
 
                 if reach_goal:
+                    self.get_logger().warn(f'Goal...............!')
                     self.no_reach_goal+=1
                     break
                 if done:
@@ -420,7 +426,7 @@ class Training(Node):
                     timeout=True
             outcome=[reach_goal,done,timeout]
             self.graph.update_data(total_step,outcome,score,critic_loss_ep,actor_loss_ep)        
-
+            
             with open('/home/mark/limo_ws/src/rl_sac/rl_sac/analysis/reward.csv', 'a', newline='') as csvfile:
                 csvwriter = writer(csvfile, delimiter='|')
                 csvwriter.writerow([float(EP),score])
@@ -434,7 +440,7 @@ class Training(Node):
                 
             if EP % 10 == 0: 
                 torch.save(agent.PI.state_dict(), save_dir + "sac_actor_"+date+"_EP"+str(EP)+".pt")
-            if (EP % GRAPH_DRAW_INTERVAL == 0) or (EP == 1):
+            if (EP % GRAPH_DRAW_INTERVAL == 0) or (EP == 1) :
                 self.graph.draw_plots(EP)
     
 def mish(x):

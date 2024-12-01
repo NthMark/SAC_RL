@@ -14,7 +14,7 @@ class MapSubscriber(Node):
     def listener_callback1(self,msg):
         self.i+=1
         if self.i==10:
-            self.get_logger().info(f"Map data: {msg.pose.pose}")
+            self.get_logger().info(f"Current position: {msg.pose.pose}")
             self.i=0
         
 

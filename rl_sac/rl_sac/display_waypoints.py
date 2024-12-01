@@ -52,6 +52,7 @@ class WaypointPublisher(Node):
         self.colors_angular=[]
         width_offset=10
         heigh_offset=0
+        self.resolution=gridmap.resolution
         for i_x in np.linspace(0,(gridmap.width+width_offset)//2*gridmap.resolution,(gridmap.width+width_offset)//2+1):
             for i_y in np.linspace(0,gridmap.height//2*gridmap.resolution,gridmap.height//2+1):
                 temp_occ=gridmap.occ_grid_value(i_x,i_y)
@@ -210,8 +211,8 @@ class WaypointPublisher(Node):
         #     haizz.append(p)
         # self.marker_test.points=haizz
         self.marker_occ_arr.markers=[self.marker_first,self.marker_second,self.marker_third,self.marker_fourth,self.marker_robot]
-    def round_to_nearest_half(value):
-        return round(value * 2) / 2 
+    def round_to_nearest_half(self,value,resolution):
+        return round(value / resolution) * resolution
     def map_altitude_to_color(self,altitude,altitude_max,altitude_min):
         # Map altitude value from range (-2, 2) to (0, 1)
         a, b = altitude_min, altitude_max  # Altitude range
@@ -240,10 +241,10 @@ class WaypointPublisher(Node):
         color_linear.a=1.0
         color_angular=Marker().color
         color_angular.a=1.0
-        pos.x=self.round_to_nearest_half(msg[-2])
-        pos.y=self.round_to_nearest_half(msg[-1])
-        vel_linear=msg[0]
-        vel_angular=msg[1]
+        pos.x=self.round_to_nearest_half(msg.data[-2],self.resolution)
+        pos.y=self.round_to_nearest_half(msg.data[-1],self.resolution)
+        vel_linear=msg.data[0]
+        vel_angular=msg.data[1]
         color_linear.r,color_linear.g,color_linear.b=self.altitude_to_rgb(vel_linear,ACTION_V_MAX,ACTION_V_MIN)
         color_angular.r,color_angular.g,color_angular.b=self.altitude_to_rgb(vel_angular,ACTION_W_MAX,ACTION_W_MIN)
         if pos not in self.pos:

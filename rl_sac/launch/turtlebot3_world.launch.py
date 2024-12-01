@@ -36,7 +36,7 @@ def generate_launch_description():
     world = os.path.join(
         get_package_share_directory('rl_sac'),
         'worlds',
-        'prject_stage_2.world'
+        'project_stage_3.world'
     )
 
     gzserver_cmd = IncludeLaunchDescription(

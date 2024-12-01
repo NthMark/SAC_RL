@@ -11,6 +11,7 @@ from rclpy.parameter import Parameter
 from std_srvs.srv import Empty
 from launch.substitutions import Command
 import xacro
+from .common.config import DISTANCE_THRESHOLD
 class Respawn(Node):
     def __init__(self):
         super().__init__('respawn_node')
@@ -22,7 +23,9 @@ class Respawn(Node):
         self.model_path = '/home/mark/limo_ws/src/rl_sac/urdf/goal_box.urdf.xacro'
         self.model=xacro.process_file(self.model_path).toxml()
         self.goal_position = Pose()
-        self.init_goal_x, self.init_goal_y = -0.18133, 1.3284
+        self.goal_x_list = [-0.7119,0.0704,-1.2834,-2.3205,-1.3063,-0.0213,-2.3906,-2.4354]
+        self.goal_y_list = [-0.7305,-3.0386,-4.8031,-7.0388,-8.1956,-6.6932,-0.1634,-2.6551]
+        self.init_goal_x, self.init_goal_y = self.goal_x_list[0], self.goal_y_list[0]
         self.last_goal_x = self.init_goal_x
         self.last_goal_y = self.init_goal_y
         self.goal_position.position.x = self.init_goal_x
@@ -85,8 +88,8 @@ class Respawn(Node):
         if delete:
             self.delete_model()
         ###Level 1###
-        goal_x_list = [-0.18133,-1.6161,-1.9738]
-        goal_y_list = [1.3284,3.8146,6.7591]
+        # goal_x_list = [-0.7119,0.0704,-1.2834,-2.3205,-1.3063,-0.0213,-2.3906]
+        # goal_y_list = [-0.7305,-3.0386,-4.8031,-7.0388,-8.1956,-6.6932,-0.1634]
         ###Level 1###
 
         ###Level 2###
@@ -102,23 +105,13 @@ class Respawn(Node):
         ###Level 1###
         self.last_goal_x = self.goal_position.position.x
         self.last_goal_y = self.goal_position.position.y
-        if (self.last_goal_x == goal_x_list[0] and self.last_goal_y==goal_y_list[0]) or (self.last_goal_x == goal_x_list[2] and self.last_goal_y==goal_y_list[2]) :
-            self.goal_position.position.x = goal_x_list[1]
-            self.goal_position.position.y = goal_y_list[1]
-        elif self.last_goal_x == goal_x_list[1] and self.last_goal_y==goal_y_list[1]:
-            index=random.choice([0, 2])
-            self.goal_position.position.x = goal_x_list[index]
-            self.goal_position.position.y = goal_y_list[index]
+        while (self.goal_position.position.x==self.last_goal_x and self.goal_position.position.y==self.last_goal_y) or \
+        math.hypot(self.goal_position.position.x-self.last_goal_x,self.goal_position.position.y-self.last_goal_y)>DISTANCE_THRESHOLD:
+            index=random.randint(0,len(self.goal_x_list)-1)
+            self.goal_position.position.x = self.goal_x_list[index]
+            self.goal_position.position.y = self.goal_y_list[index]
         ###Level 1###
-
-        # index=random.randint(0,len(goal_x_list)-1)
-        # self.goal_position.position.x = goal_x_list[index]
-        # self.goal_position.position.y = goal_y_list[index]
-        # while self.goal_position.position.x==self.last_goal_x and self.goal_position.position.y==self.last_goal_y :
-        #     index=random.randint(0,len(goal_x_list)-1)
-        #     self.goal_position.position.x = goal_x_list[index]
-        #     self.goal_position.position.y = goal_y_list[index]
-        time.sleep(0.5)
+        time.sleep(1.0)
         self.respawn_model()
 
         return self.goal_position.position.x, self.goal_position.position.y

@@ -1,4 +1,5 @@
 from .config import ENABLE_VISUAL
+# ENABLE_VISUAL=True
 if ENABLE_VISUAL:
     from PyQt5 import QtWidgets
     import pyqtgraph as pg
@@ -45,6 +46,8 @@ if ENABLE_VISUAL:
             actions = actions.tolist()
             self.bar_graph_action_linear.setOpts(height=[actions[1]])
             self.bar_graph_action_angular.setOpts(height=[actions[0]])
+            self.bar_graph_action_linear.setOpts(brush='b')
+            self.bar_graph_action_angular.setOpts(brush='b')
 
         def update_reward(self, acc_reward):
             self.bar_graph_reward.setOpts(height=[acc_reward])

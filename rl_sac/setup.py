@@ -16,6 +16,7 @@ setup(
         (os.path.join('share',package_name,'urdf'), glob('urdf/*.urdf')),
         (os.path.join('share',package_name,'worlds'), glob('worlds/*.world')),
         (os.path.join('share',package_name,'map'), glob('map/*')),
+        (os.path.join('share',package_name,'config'), glob('config/*.rviz')),
         (os.path.join('share',package_name,'models','turtlebot3_burger'), glob('models/turtlebot3_burger/*')),
     ],
     package_data={
