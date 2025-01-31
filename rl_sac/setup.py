@@ -39,7 +39,8 @@ setup(
             'grid_map=rl_sac.grid_map:main',
             'display_waypoint=rl_sac.display_waypoints:main',
             'path_planning_train=rl_sac.path_planning_train:main',
-            'map_data_len=rl_sac.map_data:main'
+            'map_data_len=rl_sac.map_data:main',
+            'visual_node=rl_sac.common.visual:main'
             # 'bridge=rl_sac.testing.bridge_pub_sub:main'
         ],
     },

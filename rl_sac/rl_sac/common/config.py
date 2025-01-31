@@ -15,5 +15,5 @@ GRAPH_AVERAGE_REWARD     = 10       # Average the reward graph over every N epis
 
 PLOT_PATH="/home/mark/limo_ws/src/rl_sac/rl_sac/plot/"
 
-ENABLE_VISUAL = False
+ENABLE_VISUAL = True
 DISTANCE_THRESHOLD = 2.6

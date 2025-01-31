@@ -5,15 +5,24 @@ if ENABLE_VISUAL:
     import pyqtgraph as pg
     import numpy as np
     import sys
-
+    import rclpy
+    from rclpy.node import Node
+    from std_msgs.msg import Float32MultiArray
+    import threading
     pg.setConfigOptions(antialias=False)
 
-    class DrlVisual(pg.GraphicsLayoutWidget):  # Updated from GraphicsView to GraphicsLayoutWidget
+    class DrlVisual(Node,pg.GraphicsLayoutWidget):  # Updated from GraphicsView to GraphicsLayoutWidget
         def __init__(self):
-            super().__init__()
+            Node.__init__(self,"visualize")
+            pg.GraphicsLayoutWidget.__init__(self)
             self.show()
             self.resize(1980, 1200)
-
+            self.visual_sub=self.create_subscription(
+                Float32MultiArray,
+                'visual_rviz',
+                self.visual_callback,
+                10
+            )
             # Create layout for organizing different plots
             self.setWindowTitle('Deep Reinforcement Learning Visualization')
 
@@ -55,15 +64,29 @@ if ENABLE_VISUAL:
                 self.bar_graph_reward.setOpts(brush='g')
             else:
                 self.bar_graph_reward.setOpts(brush='r')
+        def visual_callback(self,msg):
+            self.get_logger().info(f"{msg}")
+            action=np.array([msg.data[1],msg.data[0]])
+            reward=msg.data[2]
+            self.update_action(action)
+            self.update_reward(reward)
+def ros_spin_thread(node):
+    # Spin ROS in a separate thread
+    rclpy.spin(node)
+def main():
+    rclpy.init()
 
+        # Create the PyQt application
+    app = QtWidgets.QApplication(sys.argv)
+    visual = DrlVisual()
+    
+    spin_thread = threading.Thread(target=ros_spin_thread, args=(visual,))
+    spin_thread.daemon = True
+    spin_thread.start()
+    sys.exit(app.exec_())
 
+    rclpy.shutdown()
 if __name__ == '__main__':
     if ENABLE_VISUAL:
         # Create a QApplication instance
-        app = QtWidgets.QApplication(sys.argv)
-
-        # Create an instance of the DrlVisual class
-        visual = DrlVisual()
-
-        # Run the application loop
-        sys.exit(app.exec_())
+        main()
